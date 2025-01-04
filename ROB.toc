@@ -1,0 +1,12 @@
+## Interface: 11200
+## Title: Rogue One Button (ROB)
+## Notes: A one-button solution for Rogue actions with energy tracking.
+## Author: YourName
+## Version: 1.0
+## SavedVariables: ROBIconSettings
+
+ROB.lua
+Modules\Dodge.lua
+Modules\ROB_SpellUtils.lua
+Modules\Rotation.lua
+Modules\AdrenalineRushButton.lua
