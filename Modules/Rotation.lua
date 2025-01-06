@@ -152,6 +152,30 @@ function ROB.HandleAdrenalineRush()
     end
 end
 
+-- Function to check if Surprise Attack is usable
+function ROB.IsSurpriseAttackUsable()
+    -- Replace this texture with the actual icon texture for Surprise Attack in your version of the game
+    local surpriseAttackTexture = "Interface\\Icons\\Ability_Rogue_SurpriseAttack"
+    local slot = ROB.FindActionSlotByTexture(surpriseAttackTexture)
+
+    if slot then
+        -- Check if the action is usable and in range
+        local isUsable = IsUsableAction(slot)
+        local inRange = IsActionInRange(slot)
+
+        -- Debug information
+        debug_print("Surprise Attack Usable: " .. tostring(isUsable))
+        debug_print("Surprise Attack In Range: " .. tostring(inRange))
+
+        -- Consider Surprise Attack usable only if it's both usable and in range
+        return isUsable and inRange
+    else
+        debug_print("Surprise Attack not found on action bar.")
+        return false
+    end
+end
+
+
 function ROB.HandleRotation()
     local comboPoints = GetComboPoints("player", "target")
     local timeLeft = ROB.GetSliceAndDiceTimeLeft()
@@ -161,35 +185,55 @@ function ROB.HandleRotation()
     local targetHealthPercent = (targetHealth / targetHealthMax) * 100
     local isBoss = UnitClassification("target") == "worldboss" -- Check if the target is a boss
 
+    -- Adjusted energy costs
+    local sliceAndDiceCost = 20
+    local finisherCost = ROB.exposeArmorToggled and 25 or 30 -- Expose Armor or Eviscerate cost
+    local surpriseAttackCost = 5
+
     -- Prioritize Adrenaline Rush
     ROB.HandleAdrenalineRush()
 
     -- Prioritize Blade Flurry
     ROB.HandleBladeFlurry()
 
+    -- Check if Surprise Attack is usable
+    local isSurpriseAttackUsable = ROB.IsSurpriseAttackUsable()
+
     -- Prioritize Surprise Attack
-    if ROB.IsDodgeActive() and comboPoints < 5 and energy >= 10 then
-        if not ROB.IsSurpriseAttackQueued() then
-            if timeLeft and timeLeft <= 3 and energy < 35 then
-                debug_print("Not queuing Surprise Attack due to Slice and Dice refresh priority.")
-            else
-                CastSpellByName("Surprise Attack")
-                debug_print("Queuing Surprise Attack.")
-                return
-            end
+    if isSurpriseAttackUsable and comboPoints < 5 and energy >= surpriseAttackCost then
+        if timeLeft and timeLeft <= 3 and energy < sliceAndDiceCost and comboPoints >= 3 then
+            debug_print("Not using Surprise Attack due to Slice and Dice refresh priority.")
         else
-            debug_print("Surprise Attack already queued.")
+            CastSpellByName("Surprise Attack")
+            debug_print("Using Surprise Attack.")
+            return
         end
     end
 
-    -- Handle Slice and Dice and Eviscerate
-    if comboPoints == 5 and energy >= 35 then
-        CastSpellByName("Eviscerate")
-        debug_print("Casting Eviscerate (5 combo points).")
+    -- Prioritize Slice and Dice over finisher if time left is <= 3 seconds
+    if timeLeft and timeLeft <= 3 and comboPoints >= 3 and energy >= sliceAndDiceCost then
+        CastSpellByName("Slice and Dice")
+        debug_print("Refreshing Slice and Dice with priority (time left <= 3 seconds).")
         return
     end
 
-    -- Adjust Slice and Dice logic based on health thresholds
+    -- Use finisher (Eviscerate or Expose Armor) at 5 combo points if Slice and Dice is not about to expire
+    if comboPoints == 5 and energy >= finisherCost then
+        if not timeLeft or timeLeft > 3 then
+            if ROB.exposeArmorToggled then
+                CastSpellByName("Expose Armor")
+                debug_print("Using Expose Armor at 5 combo points.")
+            else
+                CastSpellByName("Eviscerate")
+                debug_print("Using Eviscerate at 5 combo points.")
+            end
+            return
+        else
+            debug_print("Skipping finisher due to Slice and Dice refresh priority.")
+        end
+    end
+
+    -- Ensure Slice and Dice is up if inactive
     local canCastSliceAndDice = true
     if isBoss and targetHealthPercent <= 10 then
         canCastSliceAndDice = false
@@ -199,83 +243,24 @@ function ROB.HandleRotation()
         debug_print("Skipping Slice and Dice (non-boss target and health is <= 20%).")
     end
 
-    -- Handle Slice and Dice
     if not timeLeft and canCastSliceAndDice then
-        if comboPoints >= 3 then
-            if ROB.IsSurpriseAttackQueued() then
-                -- Require 35 energy if Surprise Attack is queued
-                if energy >= 35 then
-                    CastSpellByName("Slice and Dice")
-                    debug_print("Casting Slice and Dice (not active, Surprise Attack queued).")
-                else
-                    debug_print("Not enough energy to cast Slice and Dice (Surprise Attack queued).")
-                end
-            else
-                -- Require 25 energy if Surprise Attack is not queued
-                if energy >= 25 then
-                    CastSpellByName("Slice and Dice")
-                    debug_print("Casting Slice and Dice (not active, Surprise Attack not queued).")
-                else
-                    debug_print("Not enough energy to cast Slice and Dice.")
-                end
-            end
-        end
-    elseif timeLeft and timeLeft <= 2 and canCastSliceAndDice then
-        if energy >= 65 then
-            CastSpellByName("Sinister Strike")
-            debug_print("Casting Sinister Strike before refreshing Slice and Dice.")
-            if comboPoints >= 3 then
-                if ROB.IsSurpriseAttackQueued() then
-                    if energy >= 35 then
-                        CastSpellByName("Slice and Dice")
-                        debug_print("Refreshing Slice and Dice (Surprise Attack queued).")
-                    else
-                        debug_print("Not enough energy to refresh Slice and Dice (Surprise Attack queued).")
-                    end
-                else
-                    CastSpellByName("Slice and Dice")
-                    debug_print("Refreshing Slice and Dice (Surprise Attack not queued).")
-                end
-            end
-        elseif energy >= 25 and comboPoints >= 3 then
-            if ROB.IsSurpriseAttackQueued() then
-                if energy >= 35 then
-                    CastSpellByName("Slice and Dice")
-                    debug_print("Refreshing Slice and Dice (Surprise Attack queued).")
-                else
-                    debug_print("Not enough energy to refresh Slice and Dice (Surprise Attack queued).")
-                end
-            else
-                CastSpellByName("Slice and Dice")
-                debug_print("Refreshing Slice and Dice (Surprise Attack not queued).")
-            end
+        if comboPoints >= 2 and energy >= sliceAndDiceCost then
+            CastSpellByName("Slice and Dice")
+            debug_print("Using Slice and Dice (not active).")
+            return
         end
     end
 
-    -- Handle Sinister Strike if Slice and Dice is skipped or not needed
-    if not canCastSliceAndDice or (not timeLeft and comboPoints < 2) then
-        if energy >= 40 then
-            -- Continue building combo points with Sinister Strike
-            if ROB.IsSurpriseAttackQueued() then
-                if comboPoints == 4 then
-                    debug_print("Not using Sinister Strike to avoid wasting combo points (Surprise Attack queued).")
-                elseif energy < 50 then
-                    debug_print("Not using Sinister Strike to preserve energy for Surprise Attack.")
-                else
-                    CastSpellByName("Sinister Strike")
-                    debug_print("Casting Sinister Strike (Slice and Dice skipped).")
-                end
-            else
-                CastSpellByName("Sinister Strike")
-                debug_print("Casting Sinister Strike (Slice and Dice skipped).")
-            end
-        else
-            debug_print("Not enough energy to cast Sinister Strike.")
-        end
+    -- Use Sinister Strike to build combo points
+    if energy >= 40 and comboPoints < 5 then
+        CastSpellByName("Sinister Strike")
+        debug_print("Using Sinister Strike to build combo points.")
         return
+    else
+        debug_print("Not enough energy to use Sinister Strike.")
     end
 
-    -- Fallback: Build combo points with Sinister Strike if nothing else applies
+    -- Fallback: Build combo points with Sinister Strike
     if energy >= 40 and comboPoints < 5 then
         CastSpellByName("Sinister Strike")
         debug_print("Fallback: Casting Sinister Strike to build combo points.")
@@ -446,143 +431,11 @@ function ROB.HandleRotationRupture()
     end
 end
 
-function ROB.RotationExpose()
-    local comboPoints = GetComboPoints("player", "target")
-    local timeLeft = ROB.GetSliceAndDiceTimeLeft()
-    local energy = UnitMana("player")
-    local targetHealth = UnitHealth("target")
-    local targetHealthMax = UnitHealthMax("target")
-    local targetHealthPercent = (targetHealth / targetHealthMax) * 100
-    local isBoss = UnitClassification("target") == "worldboss" -- Check if the target is a boss
-
-    -- Prioritize Adrenaline Rush
-    ROB.HandleAdrenalineRush()
-
-    -- Prioritize Blade Flurry
-    ROB.HandleBladeFlurry()
-
-    -- Prioritize Surprise Attack
-    if ROB.IsDodgeActive() and comboPoints < 5 and energy >= 10 then
-        if not ROB.IsSurpriseAttackQueued() then
-            if timeLeft and timeLeft <= 3 and energy < 35 then
-                debug_print("Not queuing Surprise Attack due to Slice and Dice refresh priority.")
-            else
-                CastSpellByName("Surprise Attack")
-                debug_print("Queuing Surprise Attack.")
-                return
-            end
-        else
-            debug_print("Surprise Attack already queued.")
-        end
-    end
-
-    -- Handle Slice and Dice logic
-    local canCastSliceAndDice = true
-    if isBoss and targetHealthPercent <= 10 then
-        canCastSliceAndDice = false
-        debug_print("Skipping Slice and Dice (target is a boss and health is <= 10%).")
-    elseif not isBoss and targetHealthPercent <= 20 then
-        canCastSliceAndDice = false
-        debug_print("Skipping Slice and Dice (non-boss target and health is <= 20%).")
-    end
-
-    if not timeLeft and canCastSliceAndDice then
-        if comboPoints >= 2 then
-            if ROB.IsSurpriseAttackQueued() then
-                if energy >= 35 then
-                    CastSpellByName("Slice and Dice")
-                    debug_print("Casting Slice and Dice (not active, Surprise Attack queued).")
-                else
-                    debug_print("Not enough energy to cast Slice and Dice (Surprise Attack queued).")
-                end
-            else
-                if energy >= 25 then
-                    CastSpellByName("Slice and Dice")
-                    debug_print("Casting Slice and Dice (not active, Surprise Attack not queued).")
-                else
-                    debug_print("Not enough energy to cast Slice and Dice.")
-                end
-            end
-        end
-    elseif timeLeft and timeLeft <= 2 and canCastSliceAndDice then
-        if energy >= 65 then
-            CastSpellByName("Sinister Strike")
-            debug_print("Casting Sinister Strike before refreshing Slice and Dice.")
-            if comboPoints >= 3 then
-                if ROB.IsSurpriseAttackQueued() then
-                    if energy >= 35 then
-                        CastSpellByName("Slice and Dice")
-                        debug_print("Refreshing Slice and Dice (Surprise Attack queued).")
-                    else
-                        debug_print("Not enough energy to refresh Slice and Dice (Surprise Attack queued).")
-                    end
-                else
-                    CastSpellByName("Slice and Dice")
-                    debug_print("Refreshing Slice and Dice (Surprise Attack not queued).")
-                end
-            end
-        elseif energy >= 25 and comboPoints >= 3 then
-            if ROB.IsSurpriseAttackQueued() then
-                if energy >= 35 then
-                    CastSpellByName("Slice and Dice")
-                    debug_print("Refreshing Slice and Dice (Surprise Attack queued).")
-                else
-                    debug_print("Not enough energy to refresh Slice and Dice (Surprise Attack queued).")
-                end
-            else
-                CastSpellByName("Slice and Dice")
-                debug_print("Refreshing Slice and Dice (Surprise Attack not queued).")
-            end
-        end
-    end
-
-    -- Handle Expose Armor at 5 combo points
-    if comboPoints == 5 and energy >= 25 then
-        CastSpellByName("Expose Armor")
-        debug_print("Casting Expose Armor (5 combo points).")
-        return
-    end
-
-    -- Handle Sinister Strike if Slice and Dice is skipped or not needed
-    if not canCastSliceAndDice or (not timeLeft and comboPoints < 2) then
-        if energy >= 40 then
-            if ROB.IsSurpriseAttackQueued() then
-                if comboPoints == 4 then
-                    debug_print("Not using Sinister Strike to avoid wasting combo points (Surprise Attack queued).")
-                elseif energy < 50 then
-                    debug_print("Not using Sinister Strike to preserve energy for Surprise Attack.")
-                else
-                    CastSpellByName("Sinister Strike")
-                    debug_print("Casting Sinister Strike (Slice and Dice skipped).")
-                end
-            else
-                CastSpellByName("Sinister Strike")
-                debug_print("Casting Sinister Strike (Slice and Dice skipped).")
-            end
-        else
-            debug_print("Not enough energy to cast Sinister Strike.")
-        end
-        return
-    end
-
-    -- Fallback: Build combo points with Sinister Strike if nothing else applies
-    if energy >= 40 and comboPoints < 5 then
-        CastSpellByName("Sinister Strike")
-        debug_print("Fallback: Casting Sinister Strike to build combo points.")
-    else
-        debug_print("Fallback: Not enough energy to cast Sinister Strike.")
-    end
-end
-
 
 -- Updated /robattack command to choose rotation based on talents and Expose Armor toggle
 SLASH_ROBATTACK1 = "/robattack"
 SlashCmdList["ROBATTACK"] = function()
-    if ROB.exposeArmorToggled then
-        -- Use the Expose Armor rotation if toggled ON
-        debug_print("Using Expose Armor rotation (Expose Armor toggled ON).")
-        ROB.RotationExpose()
-    elseif ROB.HasTalent("Lethality") then
+    if ROB.HasTalent("Lethality") then
         -- Use the original rotation if the player has the Lethality talent
         debug_print("Using original rotation (Lethality detected).")
         ROB.HandleRotation()
